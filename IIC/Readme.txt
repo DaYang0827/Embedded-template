@@ -1,4 +1,4 @@
-针对代码的解析
+The analsis about IIC coding
 
 IIC.c
 
