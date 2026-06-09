@@ -1,4 +1,4 @@
-USART establish：
+USART Establish：
 1. 开 GPIO 时钟
 2. 开 USART 时钟
 3. 配置 GPIO 为复用模式
