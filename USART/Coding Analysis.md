@@ -1,5 +1,5 @@
 # USART编写逻辑以及代码理解
-## 1. USART Establish：
+## 1. USART Establish
     1. 开 GPIO 时钟
     2. 开 USART 时钟
     3. 配置 GPIO 为复用模式
@@ -13,7 +13,7 @@
 ## 2. USART的部分组成
 GPIO复用 + USART参数 + NVIC中断 + 回调函数
 
-## 3. 在stm32f407中常见的USART搭配：
+## 3. 在stm32f407中常见的USART搭配
 USART1：PA9 / PA10，挂在 APB2
 
 USART2：PA2 / PA3，挂在 APB1
@@ -42,7 +42,7 @@ GPIOA：挂在AHB1
     }
 ```
 
-## 6. 代码分析：
+## 6. 代码分析
 ###  6.1 USART.h
 ```c   
     #define USART_RX_BUF_SIZE    128						            //定义缓冲区
