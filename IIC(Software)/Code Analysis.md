@@ -174,7 +174,7 @@ void iic_send_byte(typedef_iic* iic, uint8_t data)
     {
         iic_scl_low(iic);
 
-        if (data & 0x80)							 //判断最高位是不是1
+        if (data & 0x80)							 //判断最高位是不是1，在if中只要内部结果不是0，就代表条件成立
         {
             iic_sda_high(iic);                       //如果最高位是1，就把SDA拉高，及在SDA中写入1
         }
@@ -187,7 +187,7 @@ void iic_send_byte(typedef_iic* iic, uint8_t data)
 
         iic_delay();
 
-        iic_scl_high(iic);
+        iic_scl_high(iic);                           //每次写入一个bit都需要让SCL有一个跳变，当SCL为高的时候，就是从机去读取这个bit
         iic_delay();
 
         iic_scl_low(iic);
@@ -195,15 +195,17 @@ void iic_send_byte(typedef_iic* iic, uint8_t data)
     }
 }
 
-//ACK的应答机制，IIC每次发送完8bit，一个字节之后，还需要第九个时钟
+/*ACK的应答机制，IIC每次发送完8bit，一个字节之后，还需要第九个时钟，第九个时钟用于ACK
+  ACK的规则是：SDA = 0：从机应答，ACK
+              SDA = 1：从机没有应答，NACK*/
 uint8_t iic_wait_ack(typedef_iic * iic)
 {
     uint16_t timeout = 0;
 
-    iic_sda_high(iic);
+    iic_sda_high(iic);                                //主机发完 8 bit 后，要释放 SDA，让从机控制 SDA
     iic_delay();
 
-    iic_scl_high(iic);
+    iic_scl_high(iic);                                //主机拉高SCL，这个时候读取 SDA的状态
     iic_delay();
 
     while (iic_read_sda(iic))
@@ -223,6 +225,7 @@ uint8_t iic_wait_ack(typedef_iic * iic)
     return 0;
 }
 
+//IIC对应的ACK
 void iic_ack(typedef_iic* iic)
 {
     iic_scl_low(iic);
@@ -236,6 +239,7 @@ void iic_ack(typedef_iic* iic)
     iic_delay();
 }
 
+//IIC对应的NACK
 void iic_nack(typedef_iic* iic)
 {
     iic_scl_low(iic);
@@ -249,73 +253,75 @@ void iic_nack(typedef_iic* iic)
     iic_delay();
 }
 
-//IIC读操作
+/*IIC读取一个字节
+  STM32 通过 SCL 产生 8 个时钟脉冲，每次在 SCL 高电平时读取 SDA，最后组合成 1 个字节。
+  第二个参数ack，表示在读完这个字节之后，主机要不要发送ACK
+  ack = 1：读完后发送 ACK，表示我还要继续读
+  ack = 0：读完后发送 NACK，表示我不继续读了*/
 uint8_t iic_read_byte(typedef_iic* iic, uint8_t ack)
 {
     uint8_t i;
     uint8_t data = 0;
 
-    iic_sda_high(iic);
+    iic_sda_high(iic);                                //释放 SDA，让 EEPROM 可以控制 SDA
 
     for(i = 0; i < 8; i++)
     {
-        data <<= 1;
+        data <<= 1;                                    //data左移一位，给新读到的bit腾出最低位的位置
 
-        iic_scl_low(iic);
+        iic_scl_low(iic);                              //先拉低SCL，EEPROM 在 SCL 低电平期间准备下一位数据；STM32 在 SCL 高电平期间读取 SDA
         iic_delay();
 
-        iic_scl_high(iic);
+        iic_scl_high(iic);   
         iic_delay();
 
-        if (iic_read_sda(iic))
+        if (iic_read_sda(iic))                        /*在SCL为高的时候读取数据，如果 SDA 是高电平，说明当前 bit 是 1：data |= 0x01; 如果 SDA 是低电平，说明当前 bit 是0，
+                                                        那就什么都不做。因为前面已经：data <<= 1;所以最低位默认是 0。*/
         {
             data |= 0x01;
         }
 
-        iic_scl_low(iic);
+        iic_scl_low(iic);                            //读完之后拉低SCL，准备读取下一位
         iic_delay();
     }
 
-    if (ack)
+    if (ack)                                        //如果读完一个字节，还想读下一个字节就发送ACK
     {
         iic_ack(iic);
     }
     else
     {
-        iic_nack(iic);
+        iic_nack(iic);                               //如果读完这个字节主机不想继续读，就发送NACK
     }
 
     return data;
 }
 
-
+/*BL24C512 写一个字节的协议流程
+  BL24C512 是 EEPROM。它不是普通传感器寄存器那种 8 位地址，而是有 16 位存储地址*/
 uint8_t bl24c512_write_byte (typedef_iic *iic, uint16_t mem_addr, uint8_t data)
 {
     iic_start(iic);
 
-    /* 发送设备地址 + 写方向 */
-    iic_send_byte(iic, BL24C512_ADDR << 1);
+    iic_send_byte(iic, BL24C512_ADDR << 1);                    //发送设备地址 + 写方向，因为写对应的是0，所以可以整体左移一位
+    if (iic_wait_ack(iic))
+    {
+        return 1;                                                //此时的返回值代表的是对/错布尔状态，1代表失败
+    }
+
+    iic_send_byte(iic, (uint8_t)(mem_addr >> 8));                // 发送存储地址高 8 位 
     if (iic_wait_ack(iic))
     {
         return 1;
     }
 
-    /* 发送存储地址高 8 位 */
-    iic_send_byte(iic, (uint8_t)(mem_addr >> 8));
+    iic_send_byte(iic, (uint8_t)(mem_addr & 0xFF));              // 发送存储地址低 8 位 
     if (iic_wait_ack(iic))
     {
         return 1;
     }
 
-    /* 发送存储地址低 8 位 */
-    iic_send_byte(iic, (uint8_t)(mem_addr & 0xFF));
-    if (iic_wait_ack(iic))
-    {
-        return 1;
-    }
-
-    /* 发送要写入的数据 */
-    iic_send_byte(iic, data);
+    iic_send_byte(iic, data);                                    // 发送要写入的数据 
     if (iic_wait_ack(iic))
     {
         return 1;
@@ -323,8 +329,7 @@ uint8_t bl24c512_write_byte (typedef_iic *iic, uint16_t mem_addr, uint8_t data)
 
     iic_stop(iic);
 
-    /* EEPROM 写入后需要等待内部写周期 */
-    eeprom_write_delay();
+    eeprom_write_delay();                                        //EEPROM 写入后需要等待内部写周期，EEPROM 写入数据后，不是马上完成。它内部要经历一个写周期，通常几毫秒
 
     return 0;
 }
@@ -342,17 +347,17 @@ uint8_t bl24c512_read_byte(typedef_iic *iic, uint16_t mem_addr)
     iic_start(iic);
 
     /* 发送设备地址 + 写方向 */
-    iic_send_byte(iic, BL24C512_ADDR << 1);
+    iic_send_byte(iic, BL24C512_ADDR << 1);                    
     if (iic_wait_ack(iic))
     {
         return 0xFF;
     }
 
     /* 发送存储地址高 8 位 */
-    iic_send_byte(iic, (uint8_t)(mem_addr >> 8));
-    if (iic_wait_ack(iic))
+    iic_send_byte(iic, (uint8_t)(mem_addr >> 8));            //（uint8_t）强制类型转化，会强制读低八位的数据。可以将16位的数据直接右移八位，强制类型转换之后就是原来的高八位
+    if (iic_wait_ack(iic))                                   //SDA是0，表示ACK；SDA是1，表示NACK
     {
-        return 0xFF;
+        return 0xFF;                                        //代表 “发生了通信错误，直接退出函数并返回一个‘错误代号’”
     }
 
     /* 发送存储地址低 8 位 */
