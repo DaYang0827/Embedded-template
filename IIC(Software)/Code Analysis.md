@@ -1,19 +1,32 @@
+# 1.基础设置
 使用软件IIC，相当于用GPIO手动模拟SCL/SDA时序，GPIO使用OUT模式不是AF模式，PB6 和 PB7 要作为普通输出引脚使用
 
 通信对象：BL24C512 EEPROM
+
 总线引脚：SCL PB6，SDA PB7
+
 通信方式：软件模拟 IIC
-GPIO模式：普通输出 OUT
-输出类型：开漏 OD
-上下拉：上拉 UP
+
+GPIO模式：**普通输出 OUT**
+
+输出类型：**开漏 OD**
+
+上下拉：**上拉 UP**
+
 设备地址：0x50，代码中使用 7 位地址
-写方向地址：0xA0
-读方向地址：0xA1
-存储地址长度：16 bit，先高 8 位，再低 8 位
+
+写方向地址：**0xA0**
+
+读方向地址：**0xA1**
+
+存储地址长度：0x0010,16 bit，先输入高 8 位，再输入低 8 位
+
 写操作：Start -> 设备写地址 -> 存储地址高位 -> 存储地址低位 -> 数据 -> Stop
+
 读操作：Start -> 设备写地址 -> 存储地址高位 -> 存储地址低位 -> ReStart -> 设备读地址 -> 读数据 -> NACK -> Stop
 
-main.c
+# 2.main.c
+``` c
 int main(void)
 {
     uint8_t write_data = 0xA5;
@@ -41,17 +54,15 @@ int main(void)
     {
     }
 }
-
-
-IIC.c
-
+```
+# 3.IIC.c
+``` c
+//定义iic的结构体
 typedef_iic iic1 =
 {
     .GPIOx = GPIOB,
-    .I2Cx = I2C1,
 
     .GPIO_Clk = RCC_AHB1Periph_GPIOB,
-    .iic_Clk = RCC_APB1Periph_I2C1,
 
     .SCL_Pin = GPIO_Pin_6,
     .SDA_Pin = GPIO_Pin_7,
@@ -114,10 +125,10 @@ void iic_init(typedef_iic* iic)
     RCC_APB1PeriphClockCmd(iic->iic_Clk,ENABLE);
 
     GPIO_InitTypeDef GPIO_InitStruct;
-    GPIO_InitStruct.GPIO_Mode = GPIO_Mode_OUT;				
+    GPIO_InitStruct.GPIO_Mode = GPIO_Mode_OUT;			    //使用OUT，因为需要使用GPIO手动模拟SCL、SDA的时序，如果是硬件模拟就可以使用AF模式	
     GPIO_InitStruct.GPIO_OType = GPIO_OType_OD;				//IIC 必须使用开漏输出。原因是 IIC 总线上可能挂多个设备。如果这块板子的 I2C2 上就挂了多个传感器，多个设备共用 SDA/SCL 时，不能让某个设备强行输出高电平，否则会和其他设备冲突
     GPIO_InitStruct.GPIO_Pin = iic->SCL_Pin | iic->SDA_Pin;
-    GPIO_InitStruct.GPIO_PuPd = GPIO_PuPd_UP;
+    GPIO_InitStruct.GPIO_PuPd = GPIO_PuPd_UP;                //IIC 总线空闲时，SCL 和 SDA 都应该是高电平
     GPIO_InitStruct.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(iic->GPIOx, &GPIO_InitStruct);
 
@@ -153,7 +164,9 @@ void iic_stop(typedef_iic* iic)
     iic_delay();
 }
 
-//IIC的发送逻辑是高位先发，先发bit7，再到bit6，最后bit0       IIC的数据规则是：SCL 低电平时，主机改变 SDA；SCL 高电平时，从机读取 SDA
+/*IIC的发送逻辑是高位先发，先发bit7，再到bit6，最后bit0
+  IIC发送都是按照字节（8个比特）发送，每发送一个字节就需要加一个应答位
+  IIC的数据规则是：SCL 低电平时，主机改变 SDA；SCL 高电平时，从机读取 SDA*/
 void iic_send_byte(typedef_iic* iic, uint8_t data)
 {
     uint8_t i;
@@ -161,16 +174,16 @@ void iic_send_byte(typedef_iic* iic, uint8_t data)
     {
         iic_scl_low(iic);
 
-        if (data & 0x80)							//判断最高位是不是1
+        if (data & 0x80)							 //判断最高位是不是1
         {
-            iic_sda_high(iic);
+            iic_sda_high(iic);                       //如果最高位是1，就把SDA拉高，及在SDA中写入1
         }
         else
         {
-            iic_sda_low(iic);
+            iic_sda_low(iic);                        //如果最高位是0，把SDA拉低，在SDA中写入0
         }
 
-        data <<= 1;								//把下一位移到最高位，准备下一次发送
+        data <<= 1;								     //将数据左移一位，把下一位移到最高位，准备下一次发送
 
         iic_delay();
 
@@ -398,9 +411,10 @@ void bl24c512_read_buffer(typedef_iic *iic, uint16_t mem_addr, uint8_t *data, ui
         data[i] = bl24c512_read_byte(iic, mem_addr + i);
     }
 }
+```
 
-
-IIC.h
+# 4.IIC.h
+```c
 #define BL24C512_ADDR    0x50
 
 typedef struct 
@@ -434,3 +448,4 @@ uint8_t bl24c512_read_byte(typedef_iic *iic, uint16_t mem_addr);
 
 void bl24c512_write_buffer(typedef_iic *iic, uint16_t mem_addr, uint8_t *data, uint16_t len);
 void bl24c512_read_buffer(typedef_iic *iic, uint16_t mem_addr, uint8_t *data, uint16_t len);
+```
