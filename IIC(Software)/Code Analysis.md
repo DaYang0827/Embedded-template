@@ -114,11 +114,13 @@ static void iic_sda_low(typedef_iic* iic)
     GPIO_ResetBits(iic->GPIOx, iic->SDA_Pin);
 }
 
+//读SDA的状态
 static uint8_t iic_read_sda(typedef_iic* iic)
 {
     return GPIO_ReadInputDataBit(iic->GPIOx, iic->SDA_Pin);
 }
 
+//初始化IIC
 void iic_init(typedef_iic* iic)
 {
     RCC_AHB1PeriphClockCmd(iic->GPIO_Clk,ENABLE);
